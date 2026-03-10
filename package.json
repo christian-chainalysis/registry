@@ -9,8 +9,8 @@
     "start": "next start",
     "lint": "next lint",
     "tokens": "node scripts/transform-tokens.js",
-    "registry:build": "shadcn build",
-    "pipeline": "node scripts/transform-tokens.js && shadcn build"
+    "registry:build": "shadcn build && node scripts/patch-theme.js",
+    "pipeline": "node scripts/transform-tokens.js && shadcn build && node scripts/patch-theme.js"
   },
   "dependencies": {
     "@base-ui/react": "^1.2.0",
