@@ -1,31 +1,54 @@
 import { register } from "@tokens-studio/sd-transforms";
 import StyleDictionary from "style-dictionary";
+import { readFileSync, writeFileSync } from "fs";
 
-// Register Token Studio transforms (handles references, math, color modifiers, etc.)
+// --- Step 1: Normalize token references ---
+// Token Studio sometimes drops the set prefix when editing in the UI.
+// e.g. "{colors.blue.600}" instead of "{global.colors.blue.600}"
+// Fix these before Style Dictionary processes them.
+
+const raw = readFileSync("tokens/tokens.json", "utf-8");
+const tokens = JSON.parse(raw);
+
+// Collect all top-level keys in each set to build a lookup of valid paths
+const globalKeys = Object.keys(tokens.global || {});
+
+function normalizeRefs(obj, setName) {
+  for (const [key, val] of Object.entries(obj)) {
+    if (val && typeof val === "object" && !Array.isArray(val)) {
+      if (typeof val.value === "string" && val.value.startsWith("{")) {
+        const ref = val.value.slice(1, -1); // strip { }
+        // Check if reference is missing its set prefix
+        // e.g. "colors.blue.600" should be "global.colors.blue.600"
+        const firstPart = ref.split(".")[0];
+        if (
+          !tokens[firstPart] && // not a valid set name
+          globalKeys.includes(firstPart) // but IS a key in global
+        ) {
+          val.value = `{global.${ref}}`;
+        }
+      } else {
+        normalizeRefs(val, setName);
+      }
+    }
+  }
+}
+
+for (const setName of Object.keys(tokens)) {
+  normalizeRefs(tokens[setName], setName);
+}
+
+// Write normalized tokens to a temp file for Style Dictionary
+const normalizedPath = "tokens/.tokens-normalized.json";
+writeFileSync(normalizedPath, JSON.stringify(tokens, null, 2));
+
+// --- Step 2: Register Token Studio transforms ---
 await register(StyleDictionary);
 
-// Custom transform: map Token Studio token names → shadcn CSS var names
-// e.g. "light.primary" → "--primary", "light.card-foreground" → "--card-foreground"
-StyleDictionary.registerTransform({
-  name: "shadcn/name",
-  type: "name",
-  filter: (token) => {
-    // Only transform light/dark semantic tokens, not global primitives
-    const set = token.path[0];
-    return set === "light" || set === "dark";
-  },
-  transform: (token) => {
-    // Strip the set prefix (light/dark), keep the rest as the CSS var name
-    // e.g. ["light", "primary"] → "primary"
-    // e.g. ["light", "card-foreground"] → "card-foreground"
-    return token.path.slice(1).join("-");
-  },
-});
-
-// Custom format: generate globals.css with :root (light) and .dark overrides
+// --- Step 3: Custom format for shadcn globals.css ---
 StyleDictionary.registerFormat({
   name: "shadcn/css",
-  format: async ({ dictionary, options }) => {
+  format: async ({ dictionary }) => {
     const lightTokens = dictionary.allTokens.filter(
       (t) => t.path[0] === "light"
     );
@@ -119,21 +142,20 @@ StyleDictionary.registerFormat({
   },
 });
 
-// Build
+// --- Step 4: Build ---
 const sd = new StyleDictionary({
-  source: ["tokens/tokens.json"],
+  source: [normalizedPath],
   preprocessors: ["tokens-studio"],
+  log: { verbosity: "silent" },
   platforms: {
     css: {
       transformGroup: "tokens-studio",
-      transforms: ["shadcn/name"],
       buildPath: "",
       files: [
         {
           destination: "app/globals.css",
           format: "shadcn/css",
           filter: (token) => {
-            // Only output light/dark semantic tokens, not global primitives
             const set = token.path[0];
             return set === "light" || set === "dark";
           },
