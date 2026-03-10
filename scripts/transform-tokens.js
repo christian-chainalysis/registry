@@ -78,6 +78,7 @@ StyleDictionary.registerFormat({
       ``,
       `@import "tailwindcss";`,
       `@import "tw-animate-css";`,
+      `@import "shadcn/tailwind.css";`,
       ``,
       `@custom-variant dark (&:is(.dark *));`,
       ``,
